@@ -20,6 +20,7 @@ function resetProgram() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var regSheet = ss.getSheetByName("Registers");
   var ioSheet = ss.getSheetByName("IO");
+  var memSheet = ss.getSheetByName("Memory");
   var pipeSheet = ss.getSheetByName("Pipeline");
   
   updateRegister(regSheet, "PC", 0);
@@ -30,6 +31,10 @@ function resetProgram() {
   updateRegister(regSheet, "ZF", 0);
   
   ioSheet.clear();
+
+  for (var i = 0; i <= 255; i++) {
+    writeMemory(memSheet, i, 0);
+  }
   ioSheet.appendRow(["Operación", "Valor"]);
   
   pipeSheet.getRange("A2:E10").clearContent();
@@ -44,6 +49,7 @@ function step()
     var regSheet = ss.getSheetByName("Registers");
     var progSheet = ss.getSheetByName("Program");
     var ioSheet = ss.getSheetByName("IO");
+    var memSheet = ss.getSheetByName("Memory");
     var pc = regSheet.getRange("B5").getValue();
     
     // Verificar si el PC está fuera de rango
@@ -139,6 +145,25 @@ function step()
       return;
     }
     
+  if (opcode == "LOAD") {
+    var dest = args[0].trim();
+    var address = args[1].trim().replace("[", "").replace("]", "");
+    address = parseInt(address);
+    var value = readMemory(memSheet, address);
+    updateRegister(regSheet, dest, value);
+    pipeSheet.getRange(2, 4).setValue("Memory: leer dirección " + address);
+    pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value);
+  }
+
+  if (opcode == "STORE") {
+    var address = args[0].trim().replace("[", "").replace("]", "");
+    address = parseInt(address);
+    var source = args[1].trim();
+    var value = getRegisterValue(regSheet, source);
+    writeMemory(memSheet, address, value);
+    pipeSheet.getRange(2, 4).setValue("Memory: escribir dirección " + address);
+    pipeSheet.getRange(2, 5).setValue("WriteBack: [" + address + "] = " + value);
+  }
     updateRegister(regSheet, "PC", pc + 1);
 }
 
@@ -161,4 +186,12 @@ function updateRegister(sheet, name, value) {
       return;
     }
   }
+}
+
+function readMemory(sheet, address) {
+  return sheet.getRange(address + 2, 2).getValue();
+}
+
+function writeMemory(sheet, address, value) {
+  sheet.getRange(address + 2, 2).setValue(value);
 }
