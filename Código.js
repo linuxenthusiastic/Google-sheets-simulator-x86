@@ -4,17 +4,11 @@ CoAuthor: Diego Lewensztain
 AppScript Google Sheets Simulator x86 Arquitecture
 */
 
-var currentProcessID = 0;
-var quantum = 2;
-var stepCounter = 0;
-
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('🖥️ Simulador x86')
       .addItem('▶️ Ejecutar Step', 'step')
       .addItem('🔄 Reset Program', 'resetProgram')
-      .addSeparator()
-      .addItem('👥 Step con Procesos', 'stepWithProcesses')
       .addToUi();
 }
 
@@ -24,7 +18,9 @@ function resetProgram() {
   var ioSheet = ss.getSheetByName("IO");
   var memSheet = ss.getSheetByName("Memory");
   var pipeSheet = ss.getSheetByName("Pipeline");
-  var procSheet = ss.getSheetByName("Processes");
+  var cacheSheet = ss.getSheetByName("Cache");
+  var cuSheet = ss.getSheetByName("ControlUnit");
+  var aluSheet = ss.getSheetByName("ALU");
   
   updateRegister(regSheet, "PC", 0);
   updateRegister(regSheet, "EAX", 0);
@@ -34,44 +30,38 @@ function resetProgram() {
   updateRegister(regSheet, "ZF", 0);
   
   ioSheet.clear();
+  ioSheet.appendRow(["Operación", "Valor"]);
 
   for (var i = 0; i <= 255; i++) {
     writeMemory(memSheet, i, 0);
   }
-  ioSheet.appendRow(["Operación", "Valor"]);
   
   pipeSheet.getRange("A2:E10").clearContent();
   
-  if (procSheet) {
-    procSheet.getRange(2, 2).setValue("READY");
-    procSheet.getRange(3, 2).setValue("READY");
-    procSheet.getRange(4, 2).setValue("READY");
-    
-    for (var p = 0; p < 3; p++) {
-      var row = p + 2;
-      var inicioPC = procSheet.getRange(row, 9).getValue();
-      procSheet.getRange(row, 3).setValue(inicioPC);
-      procSheet.getRange(row, 4).setValue(0);
-      procSheet.getRange(row, 5).setValue(0);
-      procSheet.getRange(row, 6).setValue(0);
-      procSheet.getRange(row, 7).setValue(0);
-      procSheet.getRange(row, 8).setValue(0);
-    }
+  if (cacheSheet) {
+    cacheSheet.getRange("A2:E20").clearContent();
   }
   
-  stepCounter = 0;
-  currentProcessID = 0;
+  if (cuSheet) {
+    cuSheet.getRange("A2:B10").clearContent();
+  }
+  
+  if (aluSheet) {
+    aluSheet.getRange("A2:C10").clearContent();
+  }
   
   SpreadsheetApp.getUi().alert("✅ Programa reseteado.");
 }
 
-function step()
-{
+function step() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var regSheet = ss.getSheetByName("Registers");
     var progSheet = ss.getSheetByName("Program");
     var ioSheet = ss.getSheetByName("IO");
     var memSheet = ss.getSheetByName("Memory");
+    var cacheSheet = ss.getSheetByName("Cache");
+    var cuSheet = ss.getSheetByName("ControlUnit");
+    var aluSheet = ss.getSheetByName("ALU");
     var pc = getRegisterValue(regSheet, "PC");
     
     if (!progSheet.getRange(pc + 2, 1).getValue()) {
@@ -90,11 +80,29 @@ function step()
     pipeSheet.getRange(2, 2).setValue("Decode: " + opcode);
     pipeSheet.getRange(2, 3).setValue("Execute: procesando...");
     
+    if (cuSheet) {
+      cuSheet.getRange("A2:B10").clearContent();
+      cuSheet.getRange(2, 1).setValue("Instrucción actual:");
+      cuSheet.getRange(2, 2).setValue(instruction);
+      cuSheet.getRange(3, 1).setValue("Opcode:");
+      cuSheet.getRange(3, 2).setValue(opcode);
+      cuSheet.getRange(4, 1).setValue("PC:");
+      cuSheet.getRange(4, 2).setValue(pc);
+    }
+    
     var shouldIncrementPC = true;
     
     if (opcode == "MOV") {
       var dest = args[0].trim();
       var value = parseInt(args[1].trim());
+      
+      if (aluSheet) {
+        aluSheet.getRange("A2:C10").clearContent();
+        aluSheet.getRange(2, 1).setValue("Operación: MOV (transferencia)");
+        aluSheet.getRange(3, 1).setValue("Destino: " + dest);
+        aluSheet.getRange(3, 2).setValue("Valor: " + value);
+      }
+      
       updateRegister(regSheet, dest, value);
       pipeSheet.getRange(2, 4).setValue("Memory: —");
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value);
@@ -104,6 +112,18 @@ function step()
       var dest = args[0].trim();
       var addValue = parseInt(args[1].trim());
       var current = getRegisterValue(regSheet, dest);
+      
+      if (aluSheet) {
+        aluSheet.getRange("A2:C10").clearContent();
+        aluSheet.getRange(2, 1).setValue("Operación: ADD");
+        aluSheet.getRange(3, 1).setValue("Operando A:");
+        aluSheet.getRange(3, 2).setValue(current);
+        aluSheet.getRange(4, 1).setValue("Operando B:");
+        aluSheet.getRange(4, 2).setValue(addValue);
+        aluSheet.getRange(5, 1).setValue("Resultado:");
+        aluSheet.getRange(5, 2).setValue(current + addValue);
+      }
+      
       updateRegister(regSheet, dest, current + addValue);
       pipeSheet.getRange(2, 4).setValue("Memory: —");
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + (current + addValue));
@@ -113,6 +133,18 @@ function step()
       var dest = args[0].trim();
       var subValue = parseInt(args[1].trim());
       var current = getRegisterValue(regSheet, dest);
+      
+      if (aluSheet) {
+        aluSheet.getRange("A2:C10").clearContent();
+        aluSheet.getRange(2, 1).setValue("Operación: SUB");
+        aluSheet.getRange(3, 1).setValue("Operando A:");
+        aluSheet.getRange(3, 2).setValue(current);
+        aluSheet.getRange(4, 1).setValue("Operando B:");
+        aluSheet.getRange(4, 2).setValue(subValue);
+        aluSheet.getRange(5, 1).setValue("Resultado:");
+        aluSheet.getRange(5, 2).setValue(current - subValue);
+      }
+      
       updateRegister(regSheet, dest, current - subValue);
       pipeSheet.getRange(2, 4).setValue("Memory: —");
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + (current - subValue));
@@ -122,6 +154,18 @@ function step()
       var reg = args[0].trim();
       var val = parseInt(args[1].trim());
       var regVal = getRegisterValue(regSheet, reg);
+      
+      if (aluSheet) {
+        aluSheet.getRange("A2:C10").clearContent();
+        aluSheet.getRange(2, 1).setValue("Operación: CMP (comparar)");
+        aluSheet.getRange(3, 1).setValue("Valor A:");
+        aluSheet.getRange(3, 2).setValue(regVal);
+        aluSheet.getRange(4, 1).setValue("Valor B:");
+        aluSheet.getRange(4, 2).setValue(val);
+        aluSheet.getRange(5, 1).setValue("ZF (iguales?):");
+        aluSheet.getRange(5, 2).setValue(regVal == val ? 1 : 0);
+      }
+      
       if (regVal == val) {
         updateRegister(regSheet, "ZF", 1);
       } else {
@@ -172,9 +216,12 @@ function step()
       var dest = args[0].trim();
       var address = args[1].trim().replace("[", "").replace("]", "");
       address = parseInt(address);
+      
+      var cacheHit = checkCache(cacheSheet, address);
       var value = readMemory(memSheet, address);
+      
       updateRegister(regSheet, dest, value);
-      pipeSheet.getRange(2, 4).setValue("Memory: leer dirección " + address);
+      pipeSheet.getRange(2, 4).setValue("Memory: " + (cacheHit ? "Cache HIT" : "Cache MISS") + " [" + address + "]");
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value);
     }
 
@@ -183,8 +230,11 @@ function step()
       address = parseInt(address);
       var source = args[1].trim();
       var value = getRegisterValue(regSheet, source);
+      
+      var cacheHit = checkCache(cacheSheet, address);
       writeMemory(memSheet, address, value);
-      pipeSheet.getRange(2, 4).setValue("Memory: escribir dirección " + address);
+      
+      pipeSheet.getRange(2, 4).setValue("Memory: " + (cacheHit ? "Cache HIT" : "Cache MISS") + " [" + address + "]");
       pipeSheet.getRange(2, 5).setValue("WriteBack: [" + address + "] = " + value);
     }
     
@@ -193,109 +243,46 @@ function step()
     }
 }
 
-function stepWithProcesses() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var procSheet = ss.getSheetByName("Processes");
-  var regSheet = ss.getSheetByName("Registers");
-  var progSheet = ss.getSheetByName("Program");
+function checkCache(cacheSheet, address) {
+  if (!cacheSheet) return false;
   
-  if (stepCounter == 0) {
-    currentProcessID = 0;
-    var inicioPC = procSheet.getRange(2, 9).getValue();
-    updateRegister(regSheet, "PC", inicioPC);
-    procSheet.getRange(2, 2).setValue("RUNNING");
-    procSheet.getRange(3, 2).setValue("READY");
-    procSheet.getRange(4, 2).setValue("READY");
-  }
+  var cacheData = cacheSheet.getRange("A2:D9").getValues();
+  var hit = false;
+  var hitIndex = -1;
   
-  var pc = regSheet.getRange("B5").getValue();
-  var instruction = progSheet.getRange(pc + 2, 1).getValue();
-  
-  if (instruction && instruction.trim() == "HALT") {
-    procSheet.getRange(currentProcessID + 2, 2).setValue("TERMINATED");
-    saveProcessState(procSheet, currentProcessID);
-    SpreadsheetApp.getUi().alert("✅ Proceso " + currentProcessID + " terminado.");
-    if (!switchProcess()) {
-      return;
-    }
-    return;
-  }
-  
-  step();
-  stepCounter++;
-  
-  if (stepCounter % quantum == 0) {
-    saveProcessState(procSheet, currentProcessID);
-    switchProcess();
-  }
-}
-
-function saveProcessState(procSheet, pid) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var regSheet = ss.getSheetByName("Registers");
-  var row = pid + 2;
-  
-  procSheet.getRange(row, 3).setValue(getRegisterValue(regSheet, "PC"));
-  procSheet.getRange(row, 4).setValue(getRegisterValue(regSheet, "EAX"));
-  procSheet.getRange(row, 5).setValue(getRegisterValue(regSheet, "EBX"));
-  procSheet.getRange(row, 6).setValue(getRegisterValue(regSheet, "ECX"));
-  procSheet.getRange(row, 7).setValue(getRegisterValue(regSheet, "EDX"));
-  procSheet.getRange(row, 8).setValue(getRegisterValue(regSheet, "ZF"));
-}
-
-function loadProcessState(procSheet, pid) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var regSheet = ss.getSheetByName("Registers");
-  var row = pid + 2;
-  
-  var pc = procSheet.getRange(row, 3).getValue();
-  var eax = procSheet.getRange(row, 4).getValue();
-  var ebx = procSheet.getRange(row, 5).getValue();
-  var ecx = procSheet.getRange(row, 6).getValue();
-  var edx = procSheet.getRange(row, 7).getValue();
-  var zf = procSheet.getRange(row, 8).getValue();
-  
-  updateRegister(regSheet, "PC", pc);
-  updateRegister(regSheet, "EAX", eax);
-  updateRegister(regSheet, "EBX", ebx);
-  updateRegister(regSheet, "ECX", ecx);
-  updateRegister(regSheet, "EDX", edx);
-  updateRegister(regSheet, "ZF", zf);
-}
-
-function switchProcess() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var procSheet = ss.getSheetByName("Processes");
-  
-  var currentRow = currentProcessID + 2;
-  var currentEstado = procSheet.getRange(currentRow, 2).getValue();
-  
-  if (currentEstado == "RUNNING") {
-    procSheet.getRange(currentRow, 2).setValue("READY");
-  }
-  
-  var found = false;
-  for (var i = 1; i <= 3; i++) {
-    var nextPID = (currentProcessID + i) % 3;
-    var nextRow = nextPID + 2;
-    var estado = procSheet.getRange(nextRow, 2).getValue();
-    
-    if (estado == "READY") {
-      currentProcessID = nextPID;
-      found = true;
+  for (var i = 0; i < cacheData.length; i++) {
+    if (cacheData[i][1] == address && cacheData[i][0] == 1) {
+      hit = true;
+      hitIndex = i;
       break;
     }
   }
   
-  if (!found) {
-    SpreadsheetApp.getUi().alert("✅ Todos los procesos terminados.");
+  if (hit) {
+    cacheSheet.getRange(hitIndex + 2, 4).setValue(new Date().getTime());
+    return true;
+  } else {
+    var lruIndex = 0;
+    var oldestTime = new Date().getTime();
+    
+    for (var i = 0; i < cacheData.length; i++) {
+      if (cacheData[i][0] == 0) {
+        lruIndex = i;
+        break;
+      }
+      if (cacheData[i][3] < oldestTime) {
+        oldestTime = cacheData[i][3];
+        lruIndex = i;
+      }
+    }
+    
+    cacheSheet.getRange(lruIndex + 2, 1).setValue(1);
+    cacheSheet.getRange(lruIndex + 2, 2).setValue(address);
+    cacheSheet.getRange(lruIndex + 2, 3).setValue("Datos en RAM[" + address + "]");
+    cacheSheet.getRange(lruIndex + 2, 4).setValue(new Date().getTime());
+    
     return false;
   }
-  
-  loadProcessState(procSheet, currentProcessID);
-  procSheet.getRange(currentProcessID + 2, 2).setValue("RUNNING");
-  
-  return true;
 }
 
 function getRegisterValue(sheet, name) {
