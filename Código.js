@@ -17,6 +17,14 @@ function step()
     var parts = instruction.split(" ");
     var opcode = parts[0];
     var args = parts.slice(1).join(" ").split(",");
+
+    /*pipeline*/
+    var pipeSheet = ss.getSheetByName("Pipeline");
+    pipeSheet.getRange("A2:E10").clearContent();
+    pipeSheet.getRange(2, 1).setValue("Instrucción " + (pc + 1) + ": Fetch");
+    pipeSheet.getRange(2, 2).setValue("Instrucción " + (pc) + ": Decode");
+    pipeSheet.getRange(2, 3).setValue("Instrucción " + (pc - 1) + ": Execute");
+
     if (opcode == "MOV") {
     var dest = args[0].trim();
     var value = parseInt(args[1].trim());
