@@ -72,15 +72,15 @@ function step()
     var progSheet = ss.getSheetByName("Program");
     var ioSheet = ss.getSheetByName("IO");
     var memSheet = ss.getSheetByName("Memory");
-    var pc = regSheet.getRange("B5").getValue();
+    var pc = getRegisterValue(regSheet, "PC");
     
     if (!progSheet.getRange(pc + 2, 1).getValue()) {
       SpreadsheetApp.getUi().alert("❌ Error: No hay más instrucciones.");
       return;
     }
     
-    var instruction = progSheet.getRange(pc + 2, 1).getValue();
-    var parts = instruction.split(" ");
+    var instruction = progSheet.getRange(pc + 2, 1).getValue().trim();
+    var parts = instruction.split(/\s+/);
     var opcode = parts[0];
     var args = parts.slice(1).join(" ").split(",");
     
@@ -90,6 +90,8 @@ function step()
     pipeSheet.getRange(2, 2).setValue("Decode: " + opcode);
     pipeSheet.getRange(2, 3).setValue("Execute: procesando...");
     
+    var shouldIncrementPC = true;
+    
     if (opcode == "MOV") {
       var dest = args[0].trim();
       var value = parseInt(args[1].trim());
@@ -98,7 +100,7 @@ function step()
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value);
     }
     
-    if (opcode == "ADD") {
+    else if (opcode == "ADD") {
       var dest = args[0].trim();
       var addValue = parseInt(args[1].trim());
       var current = getRegisterValue(regSheet, dest);
@@ -107,7 +109,7 @@ function step()
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + (current + addValue));
     }
     
-    if (opcode == "SUB") {
+    else if (opcode == "SUB") {
       var dest = args[0].trim();
       var subValue = parseInt(args[1].trim());
       var current = getRegisterValue(regSheet, dest);
@@ -116,7 +118,7 @@ function step()
       pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + (current - subValue));
     }
     
-    if (opcode == "CMP") {
+    else if (opcode == "CMP") {
       var reg = args[0].trim();
       var val = parseInt(args[1].trim());
       var regVal = getRegisterValue(regSheet, reg);
@@ -129,28 +131,29 @@ function step()
       pipeSheet.getRange(2, 5).setValue("WriteBack: ZF actualizado");
     }
     
-    if (opcode == "JMP") {
+    else if (opcode == "JMP") {
       var target = parseInt(args[0].trim());
       updateRegister(regSheet, "PC", target);
       pipeSheet.getRange(2, 4).setValue("Memory: —");
       pipeSheet.getRange(2, 5).setValue("WriteBack: PC = " + target);
-      return;
+      shouldIncrementPC = false;
     }
     
-    if (opcode == "JE") {
+    else if (opcode == "JE") {
       var target = parseInt(args[0].trim());
       var zf = getRegisterValue(regSheet, "ZF");
       if (zf == 1) {
         updateRegister(regSheet, "PC", target);
         pipeSheet.getRange(2, 4).setValue("Memory: —");
         pipeSheet.getRange(2, 5).setValue("WriteBack: Salto a " + target);
-        return;
+        shouldIncrementPC = false;
+      } else {
+        pipeSheet.getRange(2, 4).setValue("Memory: —");
+        pipeSheet.getRange(2, 5).setValue("WriteBack: No saltar");
       }
-      pipeSheet.getRange(2, 4).setValue("Memory: —");
-      pipeSheet.getRange(2, 5).setValue("WriteBack: No saltar");
     }
     
-    if (opcode == "PRINT") {
+    else if (opcode == "PRINT") {
       var reg = args[0].trim();
       var val = getRegisterValue(regSheet, reg);
       ioSheet.appendRow(["PRINT", val]);
@@ -158,33 +161,36 @@ function step()
       pipeSheet.getRange(2, 5).setValue("WriteBack: impreso " + val);
     }
     
-    if (opcode == "HALT") {
+    else if (opcode == "HALT") {
       pipeSheet.getRange(2, 4).setValue("Memory: —");
       pipeSheet.getRange(2, 5).setValue("WriteBack: DETENIDO");
       SpreadsheetApp.getUi().alert("⏹️ Programa terminado.");
-      return;
+      shouldIncrementPC = false;
     }
     
-  if (opcode == "LOAD") {
-    var dest = args[0].trim();
-    var address = args[1].trim().replace("[", "").replace("]", "");
-    address = parseInt(address);
-    var value = readMemory(memSheet, address);
-    updateRegister(regSheet, dest, value);
-    pipeSheet.getRange(2, 4).setValue("Memory: leer dirección " + address);
-    pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value);
-  }
+    else if (opcode == "LOAD") {
+      var dest = args[0].trim();
+      var address = args[1].trim().replace("[", "").replace("]", "");
+      address = parseInt(address);
+      var value = readMemory(memSheet, address);
+      updateRegister(regSheet, dest, value);
+      pipeSheet.getRange(2, 4).setValue("Memory: leer dirección " + address);
+      pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value);
+    }
 
-  if (opcode == "STORE") {
-    var address = args[0].trim().replace("[", "").replace("]", "");
-    address = parseInt(address);
-    var source = args[1].trim();
-    var value = getRegisterValue(regSheet, source);
-    writeMemory(memSheet, address, value);
-    pipeSheet.getRange(2, 4).setValue("Memory: escribir dirección " + address);
-    pipeSheet.getRange(2, 5).setValue("WriteBack: [" + address + "] = " + value);
-  }
-    updateRegister(regSheet, "PC", pc + 1);
+    else if (opcode == "STORE") {
+      var address = args[0].trim().replace("[", "").replace("]", "");
+      address = parseInt(address);
+      var source = args[1].trim();
+      var value = getRegisterValue(regSheet, source);
+      writeMemory(memSheet, address, value);
+      pipeSheet.getRange(2, 4).setValue("Memory: escribir dirección " + address);
+      pipeSheet.getRange(2, 5).setValue("WriteBack: [" + address + "] = " + value);
+    }
+    
+    if (shouldIncrementPC) {
+      updateRegister(regSheet, "PC", pc + 1);
+    }
 }
 
 function stepWithProcesses() {
