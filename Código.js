@@ -21,6 +21,7 @@ function resetProgram() {
   var cacheSheet = ss.getSheetByName("Cache");
   var cuSheet = ss.getSheetByName("ControlUnit");
   var aluSheet = ss.getSheetByName("ALU");
+  var vmSheet = ss.getSheetByName("VirtualMemory");
   
   updateRegister(regSheet, "PC", 0);
   updateRegister(regSheet, "EAX", 0);
@@ -54,7 +55,15 @@ function resetProgram() {
   if (aluSheet) {
     aluSheet.getRange("A2:C10").clearContent();
   }
-  
+
+ if (vmSheet) {
+  for (var i = 0; i < 16; i++) {
+    vmSheet.getRange(i + 2, 2).setValue(-1);
+    vmSheet.getRange(i + 2, 3).setValue(0);
+    vmSheet.getRange(i + 2, 4).setValue(0);
+    vmSheet.getRange(i + 2, 5).setValue(0);
+  }
+ }
   SpreadsheetApp.getUi().alert("✅ Programa reseteado.");
 }
 
@@ -330,10 +339,42 @@ function updateRegister(sheet, name, value) {
 }
 
 function readMemory(sheet, address) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var vmSheet = ss.getSheetByName("VirtualMemory");
+  
+  if (vmSheet) {
+    var result = translateAddress(vmSheet, address);
+    address = result.physical;
+    
+    var pipeSheet = ss.getSheetByName("Pipeline");
+    var currentMem = pipeSheet.getRange(2, 4).getValue();
+    if (!result.hit) {
+      pipeSheet.getRange(2, 4).setValue(currentMem + " | Page FAULT");
+    } else {
+      pipeSheet.getRange(2, 4).setValue(currentMem + " | Page HIT");
+    }
+  }
+  
   return sheet.getRange(address + 2, 2).getValue();
 }
 
 function writeMemory(sheet, address, value) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var vmSheet = ss.getSheetByName("VirtualMemory");
+  
+  if (vmSheet) {
+    var result = translateAddress(vmSheet, address);
+    address = result.physical;
+    
+    var pipeSheet = ss.getSheetByName("Pipeline");
+    var currentMem = pipeSheet.getRange(2, 4).getValue();
+    if (!result.hit) {
+      pipeSheet.getRange(2, 4).setValue(currentMem + " | Page FAULT");
+    } else {
+      pipeSheet.getRange(2, 4).setValue(currentMem + " | Page HIT");
+    }
+  }
+  
   sheet.getRange(address + 2, 2).setValue(value);
 }
 
@@ -400,3 +441,67 @@ function detectHazards(currentPC, opcode, args, progSheet) {
   
   return hazards;
 }
+
+
+var MAX_FRAMES = 4;
+
+function translateAddress(vmSheet, virtualAddr) {
+  var pageSize = 16;
+  var pageNumber = Math.floor(virtualAddr / pageSize);
+  var offset = virtualAddr % pageSize;
+  
+  if (pageNumber >= 16) pageNumber = 15;
+  
+  var pageTable = vmSheet.getRange(2, 1, 16, 5).getValues();
+  
+  if (pageTable[pageNumber][2] == 1) {
+    var frameNumber = pageTable[pageNumber][1];
+    var physicalAddr = frameNumber * pageSize + offset;
+    
+    vmSheet.getRange(pageNumber + 2, 4).setValue(pageTable[pageNumber][3] + 1);
+    vmSheet.getRange(pageNumber + 2, 5).setValue(new Date().getTime());
+    
+    return {hit: true, physical: physicalAddr, page: pageNumber};
+  }
+  
+  var usedFrames = [];
+  for (var i = 0; i < 16; i++) {
+    if (pageTable[i][2] == 1) {
+      usedFrames.push({
+        page: i,
+        frame: pageTable[i][1],
+        timestamp: pageTable[i][4]
+      });
+    }
+  }
+  
+  var frameToUse;
+  var victimPage = -1;
+  
+  if (usedFrames.length < MAX_FRAMES) {
+    frameToUse = usedFrames.length;
+  } else {
+    var oldestTime = new Date().getTime();
+    for (var i = 0; i < usedFrames.length; i++) {
+      if (usedFrames[i].timestamp < oldestTime) {
+        oldestTime = usedFrames[i].timestamp;
+        victimPage = usedFrames[i].page;
+        frameToUse = usedFrames[i].frame;
+      }
+    }
+    
+    if (victimPage != -1) {
+      vmSheet.getRange(victimPage + 2, 3).setValue(0);
+    }
+  }
+  
+  vmSheet.getRange(pageNumber + 2, 2).setValue(frameToUse);
+  vmSheet.getRange(pageNumber + 2, 3).setValue(1);
+  vmSheet.getRange(pageNumber + 2, 4).setValue(1);
+  vmSheet.getRange(pageNumber + 2, 5).setValue(new Date().getTime());
+  
+  var physicalAddr = frameToUse * pageSize + offset;
+  return {hit: false, physical: physicalAddr, page: pageNumber};
+}
+
+
