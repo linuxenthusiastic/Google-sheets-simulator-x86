@@ -33,13 +33,18 @@ function resetProgram() {
   ioSheet.appendRow(["Operación", "Valor"]);
 
   for (var i = 0; i <= 255; i++) {
-    writeMemory(memSheet, i, 0);
+    memSheet.getRange(i + 2, 2).setValue(0);
   }
   
   pipeSheet.getRange("A2:E10").clearContent();
   
   if (cacheSheet) {
-    cacheSheet.getRange("A2:E20").clearContent();
+    for (var i = 0; i < 8; i++) {
+      cacheSheet.getRange(i + 2, 1).setValue(0);
+      cacheSheet.getRange(i + 2, 2).setValue("");
+      cacheSheet.getRange(i + 2, 3).setValue("");
+      cacheSheet.getRange(i + 2, 4).setValue(0);
+    }
   }
   
   if (cuSheet) {
@@ -264,13 +269,15 @@ function checkCache(cacheSheet, address) {
   } else {
     var lruIndex = 0;
     var oldestTime = new Date().getTime();
+    var hasEmpty = false;
     
     for (var i = 0; i < cacheData.length; i++) {
       if (cacheData[i][0] == 0) {
         lruIndex = i;
+        hasEmpty = true;
         break;
       }
-      if (cacheData[i][3] < oldestTime) {
+      if (cacheData[i][3] > 0 && cacheData[i][3] < oldestTime) {
         oldestTime = cacheData[i][3];
         lruIndex = i;
       }
