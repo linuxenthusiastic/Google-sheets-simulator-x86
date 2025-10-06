@@ -84,6 +84,23 @@ function step() {
     pipeSheet.getRange(2, 1).setValue("Fetch: " + instruction);
     pipeSheet.getRange(2, 2).setValue("Decode: " + opcode);
     pipeSheet.getRange(2, 3).setValue("Execute: procesando...");
+
+    var hazards = detectHazards(pc, opcode, args, progSheet);
+
+if (hazards.length > 0) {
+  var hazardText = "";
+  for (var i = 0; i < hazards.length; i++) {
+    hazardText += hazards[i].type + ": " + hazards[i].description;
+    if (i < hazards.length - 1) hazardText += " | ";
+  }
+  pipeSheet.getRange(3, 1, 1, 5).merge();
+  pipeSheet.getRange(3, 1).setValue("⚠️ HAZARDS: " + hazardText);
+  pipeSheet.getRange(3, 1).setBackground("#ffcccc");
+} else {
+  pipeSheet.getRange(3, 1, 1, 5).merge();
+  pipeSheet.getRange(3, 1).setValue("✓ Sin hazards");
+  pipeSheet.getRange(3, 1).setBackground("#ccffcc");
+}
     
     if (cuSheet) {
       cuSheet.getRange("A2:B10").clearContent();
@@ -318,4 +335,68 @@ function readMemory(sheet, address) {
 
 function writeMemory(sheet, address, value) {
   sheet.getRange(address + 2, 2).setValue(value);
+}
+
+function analyzeInstruction(opcode, args) {
+  var reads = [];
+  var writes = [];
+  
+  if (opcode == "MOV") {
+    writes.push(args[0].trim());
+  }
+  else if (opcode == "ADD" || opcode == "SUB") {
+    var reg = args[0].trim();
+    reads.push(reg);
+    writes.push(reg);
+  }
+  else if (opcode == "CMP") {
+    reads.push(args[0].trim());
+  }
+  else if (opcode == "LOAD") {
+    writes.push(args[0].trim());
+  }
+  else if (opcode == "STORE") {
+    reads.push(args[1].trim());
+  }
+  else if (opcode == "PRINT") {
+    reads.push(args[0].trim());
+  }
+  
+  return {reads: reads, writes: writes};
+}
+
+function detectHazards(currentPC, opcode, args, progSheet) {
+  var hazards = [];
+  
+  if (opcode == "JMP" || opcode == "JE") {
+    hazards.push({
+      type: "CONTROL",
+      description: "Salto detectado - pipeline debe pausarse"
+    });
+  }
+  
+  if (currentPC > 0) {
+    var prevInstruction = progSheet.getRange(currentPC + 1, 1).getValue();
+    if (prevInstruction) {
+      var prevParts = prevInstruction.trim().split(/\s+/);
+      var prevOpcode = prevParts[0];
+      var prevArgs = prevParts.slice(1).join(" ").split(",");
+      
+      var current = analyzeInstruction(opcode, args);
+      var previous = analyzeInstruction(prevOpcode, prevArgs);
+      
+      for (var i = 0; i < current.reads.length; i++) {
+        for (var j = 0; j < previous.writes.length; j++) {
+          if (current.reads[i] == previous.writes[j]) {
+            hazards.push({
+              type: "DATA (RAW)",
+              description: "Instrucción anterior escribe " + previous.writes[j] + ", actual lo lee"
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  return hazards;
 }
