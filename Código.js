@@ -9,6 +9,11 @@ function onOpen() {
   ui.createMenu('🖥️ Simulador x86')
       .addItem('▶️ Ejecutar Step', 'step')
       .addItem('🔄 Reset Program', 'resetProgram')
+      .addSeparator()
+      .addItem('📥 Simular Entrada de Teclado', 'simulateKeyboard')
+      .addItem('🖱️ Simular Entrada de Ratón', 'simulateMouse')
+      .addItem('📄 Simular Entrada de Escáner', 'simulateScanner')
+      .addItem('🕹️ Simular Entrada de Joystick', 'simulateJoystick')
       .addToUi();
 }
 
@@ -56,14 +61,70 @@ function resetProgram() {
     aluSheet.getRange("A2:C10").clearContent();
   }
 
- if (vmSheet) {
-  for (var i = 0; i < 16; i++) {
-    vmSheet.getRange(i + 2, 2).setValue(-1);
-    vmSheet.getRange(i + 2, 3).setValue(0);
-    vmSheet.getRange(i + 2, 4).setValue(0);
-    vmSheet.getRange(i + 2, 5).setValue(0);
+  if (vmSheet) {
+    for (var i = 0; i < 16; i++) {
+      vmSheet.getRange(i + 2, 2).setValue(-1);
+      vmSheet.getRange(i + 2, 3).setValue(0);
+      vmSheet.getRange(i + 2, 4).setValue(0);
+      vmSheet.getRange(i + 2, 5).setValue(0);
+    }
   }
- }
+  
+  // Reset Input Devices
+  var inputSheet = ss.getSheetByName("InputDevices");
+  if (inputSheet) {
+    var inputDevices = ["Teclado", "Ratón", "Escáner", "Joystick"];
+    for (var i = 0; i < inputDevices.length; i++) {
+      inputSheet.getRange(i + 2, 2).setValue("Inactivo"); // Estado
+      inputSheet.getRange(i + 2, 3).setValue(""); // Buffer vacío
+    }
+  }
+  
+  // Reset Output Devices
+  var outputSheet = ss.getSheetByName("OutputDevices");
+  if (outputSheet) {
+    var outputDevices = ["Monitor", "Impresora", "Altavoz", "Auriculares"];
+    for (var i = 0; i < outputDevices.length; i++) {
+      outputSheet.getRange(i + 2, 2).setValue("Inactivo"); // Estado
+      outputSheet.getRange(i + 2, 3).setValue(""); // Último dato vacío
+    }
+  }
+  
+  // Reset IO Interfaces
+  var interfaceSheet = ss.getSheetByName("IOInterfaces");
+  if (interfaceSheet) {
+    interfaceSheet.getRange("A2:E100").clearContent();
+  }
+  
+  // Reset Data Bus
+  var busSheet = ss.getSheetByName("DataBus");
+  if (busSheet) {
+    busSheet.getRange("A2:E100").clearContent();
+  }
+  
+  var inputSheet = ss.getSheetByName("InputDevices");
+if (inputSheet) {
+  var inputDevices = ["Teclado", "Ratón", "Escáner", "Joystick"];
+  for (var i = 0; i < inputDevices.length; i++) {
+    inputSheet.getRange(i + 2, 2).setValue("Inactivo"); // Estado
+    inputSheet.getRange(i + 2, 3).setValue(""); // Buffer vacío
+    inputSheet.getRange(i + 2, 4).setValue(""); // NUEVO: Limpiar dirección de memoria
+  }
+}
+
+// Reset Output Devices
+var outputSheet = ss.getSheetByName("OutputDevices");
+if (outputSheet) {
+  var outputDevices = ["Monitor", "Impresora", "Altavoz", "Auriculares"];
+  for (var i = 0; i < outputDevices.length; i++) {
+    outputSheet.getRange(i + 2, 2).setValue("Inactivo"); // Estado
+    outputSheet.getRange(i + 2, 3).setValue(""); // Último dato vacío
+    outputSheet.getRange(i + 2, 4).setValue(""); // NUEVO: Limpiar dirección de memoria
+  }
+  // NUEVO: Limpiar interpretación ASCII en B7
+  outputSheet.getRange(7, 2).setValue("");
+}
+
   SpreadsheetApp.getUi().alert("✅ Programa reseteado.");
 }
 
@@ -269,9 +330,115 @@ if (hazards.length > 0) {
       pipeSheet.getRange(2, 5).setValue("WriteBack: [" + address + "] = " + value);
     }
     
+
+else if (opcode == "IN") {
+  var dest = args[0].trim();
+  var port = parseInt(args[1].trim());
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var inputSheet = ss.getSheetByName("InputDevices");
+  var busSheet = ss.getSheetByName("DataBus");
+  
+  // Determinar dispositivo según puerto
+  var deviceName = "";
+  var deviceRow = 0;
+  if (port == 0x60 || port == 96) { deviceName = "Teclado"; deviceRow = 2; }
+  else if (port == 0x61 || port == 97) { deviceName = "Ratón"; deviceRow = 3; }
+  else if (port == 0x62 || port == 98) { deviceName = "Escáner"; deviceRow = 4; }
+  else if (port == 0x63 || port == 99) { deviceName = "Joystick"; deviceRow = 5; }
+  
+  var value = inputSheet.getRange(deviceRow, 3).getValue();
+  if (value === "") value = 0;
+  
+  updateRegister(regSheet, dest, value);
+  
+  // Actualizar dirección de memoria en InputDevices (ANTES de limpiar)
+  inputSheet.getRange(deviceRow, 4).setValue("0x" + port.toString(16).toUpperCase()); // ← NUEVA LÍNEA
+  
+  logDataBus(busSheet, value, port, "READ", deviceName + " → " + dest);
+  
+  pipeSheet.getRange(2, 4).setValue("Memory: I/O READ puerto 0x" + port.toString(16));
+  pipeSheet.getRange(2, 5).setValue("WriteBack: " + dest + " = " + value + " (desde " + deviceName + ")");
+  
+  // Limpiar buffer después de leer
+  inputSheet.getRange(deviceRow, 3).setValue("");
+  inputSheet.getRange(deviceRow, 2).setValue("Inactivo");
+}
+    
+else if (opcode == "OUT") {
+  var port = parseInt(args[0].trim());
+  var source = args[1].trim();
+  var value = getRegisterValue(regSheet, source);
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var outputSheet = ss.getSheetByName("OutputDevices");
+  var busSheet = ss.getSheetByName("DataBus");
+  var interfaceSheet = ss.getSheetByName("IOInterfaces");
+  
+  // Determinar dispositivo según puerto
+  var deviceName = "";
+  var deviceRow = 0;
+  if (port == 0x70 || port == 112) { deviceName = "Monitor"; deviceRow = 2; }
+  else if (port == 0x71 || port == 113) { deviceName = "Impresora"; deviceRow = 3; }
+  else if (port == 0x72 || port == 114) { deviceName = "Altavoz"; deviceRow = 4; }
+  else if (port == 0x73 || port == 115) { deviceName = "Auriculares"; deviceRow = 5; }
+  
+  // Actualizar dispositivo de salida
+  outputSheet.getRange(deviceRow, 2).setValue("Activo");
+  outputSheet.getRange(deviceRow, 3).setValue(value);
+  outputSheet.getRange(deviceRow, 4).setValue("0x" + port.toString(16).toUpperCase());
+  
+  // ========== NUEVO: Interpretación ASCII en B7 (solo para Monitor) ==========
+if (deviceName == "Monitor") {
+  var textoActual = outputSheet.getRange(7, 2).getValue(); // Leer lo que ya hay
+  if (!textoActual) textoActual = ""; // Si está vacío, inicializar
+  
+  var nuevoCaracter = "";
+  
+  if (value >= 32 && value <= 126) {
+    // Caracteres imprimibles ASCII
+    nuevoCaracter = String.fromCharCode(value);
+  } else if (value == 10) {
+    // Enter = nueva línea
+    nuevoCaracter = "\n";
+  } else if (value == 32) {
+    // Espacio
+    nuevoCaracter = " ";
+  } else if (value == 8) {
+    // Backspace = borrar último carácter
+    textoActual = textoActual.slice(0, -1);
+    nuevoCaracter = "";
+  } else {
+    // Otros códigos (mostrar entre corchetes)
+    nuevoCaracter = "[" + value + "]";
+  }
+  
+  // ACUMULAR: agregar nuevo carácter al texto existente
+  textoActual += nuevoCaracter;
+  
+  outputSheet.getRange(7, 2).setValue(textoActual); // Guardar texto acumulado
+}
+  
+  // Registrar en interfaces
+  var lastRow = interfaceSheet.getLastRow() + 1;
+  interfaceSheet.getRange(lastRow, 1).setValue("Output");
+  interfaceSheet.getRange(lastRow, 2).setValue(deviceName);
+  interfaceSheet.getRange(lastRow, 3).setValue("Controller_" + deviceName);
+  interfaceSheet.getRange(lastRow, 4).setValue("0x" + port.toString(16).toUpperCase());
+  interfaceSheet.getRange(lastRow, 5).setValue("SENT (valor: " + value + ")");
+  
+  logDataBus(busSheet, value, port, "WRITE", source + " → " + deviceName);
+  
+  pipeSheet.getRange(2, 4).setValue("Memory: I/O WRITE puerto 0x" + port.toString(16));
+  pipeSheet.getRange(2, 5).setValue("WriteBack: " + value + " enviado a " + deviceName);
+}
+
+
     if (shouldIncrementPC) {
       updateRegister(regSheet, "PC", pc + 1);
     }
+
+
 }
 
 function checkCache(cacheSheet, address) {
@@ -505,3 +672,163 @@ function translateAddress(vmSheet, virtualAddr) {
 }
 
 
+function simulateKeyboard() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('⌨️ Teclado Virtual', 
+                           'Ingresa un valor numérico (0-255):', 
+                           ui.ButtonSet.OK_CANCEL);
+  
+  if (response.getSelectedButton() == ui.Button.OK) {
+    var value = parseInt(response.getResponseText());
+    if (isNaN(value) || value < 0 || value > 255) {
+      ui.alert('❌ Error: Ingresa un número entre 0 y 255');
+      return;
+    }
+    
+    writeToInputDevice("Teclado", value, 0x60);
+    ui.alert('✅ Dato ' + value + ' capturado del teclado en puerto 0x60');
+  }
+}
+
+function simulateMouse() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('🖱️ Ratón Virtual', 
+                           'Simular click (1) o movimiento (coordenada 0-255):', 
+                           ui.ButtonSet.OK_CANCEL);
+  
+  if (response.getSelectedButton() == ui.Button.OK) {
+    var value = parseInt(response.getResponseText());
+    if (isNaN(value) || value < 0 || value > 255) {
+      ui.alert('❌ Error: Ingresa un número entre 0 y 255');
+      return;
+    }
+    
+    writeToInputDevice("Ratón", value, 0x61);
+    ui.alert('✅ Dato ' + value + ' capturado del ratón en puerto 0x61');
+  }
+}
+
+function simulateScanner() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('📄 Escáner Virtual', 
+                           'Simular dato escaneado (0-255):', 
+                           ui.ButtonSet.OK_CANCEL);
+  
+  if (response.getSelectedButton() == ui.Button.OK) {
+    var value = parseInt(response.getResponseText());
+    if (isNaN(value) || value < 0 || value > 255) {
+      ui.alert('❌ Error: Ingresa un número entre 0 y 255');
+      return;
+    }
+    
+    writeToInputDevice("Escáner", value, 0x62);
+    ui.alert('✅ Dato ' + value + ' capturado del escáner en puerto 0x62');
+  }
+}
+
+function writeToInputDevice(deviceName, value, port) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var inputSheet = ss.getSheetByName("InputDevices");
+  var interfaceSheet = ss.getSheetByName("IOInterfaces");
+  var busSheet = ss.getSheetByName("DataBus");
+  
+  if (!inputSheet) {
+    SpreadsheetApp.getUi().alert("❌ Error: No existe la hoja InputDevices");
+    return;
+  }
+  
+  // Mapeo directo de dispositivo a fila
+  var deviceRow = {
+    "Teclado": 2,
+    "Ratón": 3,
+    "Escáner": 4,
+    "Joystick": 5
+  };
+  
+  var row = deviceRow[deviceName];
+  
+  if (!row) {
+    SpreadsheetApp.getUi().alert("❌ Error: Dispositivo '" + deviceName + "' no reconocido");
+    return;
+  }
+  
+  // Actualizar dispositivo de entrada directamente
+  inputSheet.getRange(row, 2).setValue("Activo");                              // Columna B: Estado
+  inputSheet.getRange(row, 3).setValue(value);                                 // Columna C: Buffer
+  inputSheet.getRange(row, 4).setValue("0x" + port.toString(16).toUpperCase()); // Columna D: Dirección ← NUEVA LÍNEA
+  
+  // Registrar en interfaces
+  if (interfaceSheet) {
+    var lastRow = interfaceSheet.getLastRow();
+    if (lastRow == 0) lastRow = 1;
+    interfaceSheet.getRange(lastRow + 1, 1).setValue("Input");
+    interfaceSheet.getRange(lastRow + 1, 2).setValue(deviceName);
+    interfaceSheet.getRange(lastRow + 1, 3).setValue("Controller_" + deviceName);
+    interfaceSheet.getRange(lastRow + 1, 4).setValue("0x" + port.toString(16).toUpperCase());
+    interfaceSheet.getRange(lastRow + 1, 5).setValue("READY (valor: " + value + ")");
+  }
+  
+  // Registrar en bus de datos
+  logDataBus(busSheet, value, port, "READ", deviceName + " → CPU");
+}
+
+
+function logDataBus(busSheet, data, address, control, description) {
+  if (!busSheet) return;
+  
+  var lastRow = busSheet.getLastRow();
+  if (lastRow == 0) lastRow = 1;
+  
+  var cycle = lastRow;
+  busSheet.getRange(lastRow + 1, 1).setValue(cycle);
+  busSheet.getRange(lastRow + 1, 2).setValue(data);
+  busSheet.getRange(lastRow + 1, 3).setValue("0x" + address.toString(16).toUpperCase());
+  busSheet.getRange(lastRow + 1, 4).setValue(control);
+  busSheet.getRange(lastRow + 1, 5).setValue(description);
+}
+
+function diagnosticarHojas() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hojas = ss.getSheets();
+  var nombres = [];
+  
+  for (var i = 0; i < hojas.length; i++) {
+    nombres.push(hojas[i].getName());
+  }
+  
+  SpreadsheetApp.getUi().alert("Hojas encontradas:\n" + nombres.join("\n"));
+}
+
+function diagnosticarInputDevices() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var inputSheet = ss.getSheetByName("InputDevices");
+  
+  var devices = inputSheet.getRange("A2:A5").getValues();
+  var mensaje = "Dispositivos encontrados:\n";
+  
+  for (var i = 0; i < devices.length; i++) {
+    mensaje += "Fila " + (i+2) + ": [" + devices[i][0] + "]\n";
+  }
+  
+  SpreadsheetApp.getUi().alert(mensaje);
+}
+
+
+function simulateJoystick() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('🕹️ Joystick Virtual', 
+                           'Simular dirección: 0=Centro, 1=Arriba, 2=Derecha, 3=Abajo, 4=Izquierda:', 
+                           ui.ButtonSet.OK_CANCEL);
+  
+  if (response.getSelectedButton() == ui.Button.OK) {
+    var value = parseInt(response.getResponseText());
+    if (isNaN(value) || value < 0 || value > 4) {
+      ui.alert('❌ Error: Ingresa un número entre 0 y 4');
+      return;
+    }
+    
+    var direccion = ["Centro", "Arriba", "Derecha", "Abajo", "Izquierda"][value];
+    writeToInputDevice("Joystick", value, 0x63);
+    ui.alert('✅ Joystick: ' + direccion + ' (valor ' + value + ') en puerto 0x63');
+  }
+}
